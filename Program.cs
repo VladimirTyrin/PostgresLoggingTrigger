@@ -117,7 +117,8 @@ static async Task PrintTableAsync(string table)
     // ReSharper restore AccessToDisposedClosure
 }
 
-static string FormatValue(object? value) => value?.ToString() ?? "<NULL>";
+static string FormatValue(object? value) => value is null or DBNull ? "<NULL>" : value.ToString()!;
+;
 
 static async Task<NpgsqlConnection> OpenConnectionAsync()
 {
