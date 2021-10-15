@@ -106,10 +106,7 @@ internal static class SqlHelper
 
     public static class ForFoo
     {
-        public static Task AddAsync(Foo foo, string? userName)
-        {
-            return AddAsync(new[] { foo }, userName);
-        }
+        public static Task AddAsync(Foo foo, string? userName) => AddAsync(new[] { foo }, userName);
 
         public static async Task AddAsync(IReadOnlyList<Foo> foos, string? userName)
         {
@@ -118,7 +115,7 @@ INSERT INTO trigger_test.foo(added_at, unique_int_value, int_value, varchar_valu
 
             commandBuilder.Append(string.Join(",",
                 foos.Select((f, i) =>
-                    $"(transaction_timestamp(), @unique_int_value{i}, @int_value{i}, @string_value{i})")));
+                    $"(transaction_timestamp(), @unique_int_value{i}, @int_value{i}, @varchar_value{i})")));
 
             commandBuilder.Append(
                 " ON CONFLICT(unique_int_value) DO UPDATE SET int_value = EXCLUDED.int_value, varchar_value=EXCLUDED.varchar_value");
@@ -137,7 +134,7 @@ INSERT INTO trigger_test.foo(added_at, unique_int_value, int_value, varchar_valu
                 var foo = foos[i];
                 command.Parameters.AddWithValue($"@unique_int_value{i}", foo.UniqueIntValue);
                 command.Parameters.AddWithValue($"@int_value{i}", foo.IntValue.HasValue ? foo.IntValue.Value : DBNull.Value);
-                command.Parameters.AddWithValue($"@string_value{i}", foo.VarcharValue != null ? foo.VarcharValue : DBNull.Value);
+                command.Parameters.AddWithValue($"@varchar_value{i}", foo.VarcharValue != null ? foo.VarcharValue : DBNull.Value);
             }
 
             await command.ExecuteNonQueryAsync();
@@ -145,10 +142,7 @@ INSERT INTO trigger_test.foo(added_at, unique_int_value, int_value, varchar_valu
             await transaction.CommitAsync();
         }
 
-        public static Task DeleteAsync(Foo foo, string? userName)
-        {
-            return DeleteAsync(new[] { foo }, userName);
-        }
+        public static Task DeleteAsync(Foo foo, string? userName) => DeleteAsync(new[] { foo }, userName);
 
         public static async Task DeleteAsync(IReadOnlyList<Foo> foos, string? userName)
         {
@@ -160,6 +154,44 @@ INSERT INTO trigger_test.foo(added_at, unique_int_value, int_value, varchar_valu
             await using var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = "DELETE FROM trigger_test.foo WHERE unique_int_value = ANY(:unique_int_values);";
+
+            command.Parameters.AddWithValue("unique_int_values", foos.Select(f => f.UniqueIntValue).ToArray()).NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Integer;
+
+            await command.ExecuteNonQueryAsync();
+
+            await transaction.CommitAsync();
+        }
+
+        public static Task UpdateAsync(Foo foo, string? userName) => UpdateAsync(new[] { foo }, userName);
+
+        // just an example of bulk update, not necessarily efficient
+        public static async Task UpdateAsync(IReadOnlyList<Foo> foos, string? userName)
+        {
+            var commandBuilder = new StringBuilder(@"
+UPDATE trigger_test.foo f SET unique_int_value = tmp.unique_int_value, int_value = tmp.int_value, varchar_value = tmp.varchar_value FROM (SELECT ");
+
+            commandBuilder.Append(string.Join(" UNION ",
+                foos.Select((f, i) =>
+                    $"@unique_int_value{i} AS unique_int_value, @int_value{i} AS int_value, @varchar_value{i} AS varchar_value")));
+
+            commandBuilder.Append(") tmp WHERE f.unique_int_value = f.unique_int_value");
+
+            await using var connection = await OpenConnectionAsync();
+            await using var transaction = await connection.BeginTransactionAsync();
+
+            await SetApplicationUserAsync(connection, transaction, userName);
+
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = commandBuilder.ToString();
+
+            for (var i = 0; i < foos.Count; i++)
+            {
+                var foo = foos[i];
+                command.Parameters.AddWithValue($"@unique_int_value{i}", foo.UniqueIntValue);
+                command.Parameters.AddWithValue($"@int_value{i}", foo.IntValue.HasValue ? foo.IntValue.Value : DBNull.Value);
+                command.Parameters.AddWithValue($"@varchar_value{i}", foo.VarcharValue != null ? foo.VarcharValue : DBNull.Value);
+            }
 
             command.Parameters.AddWithValue("unique_int_values", foos.Select(f => f.UniqueIntValue).ToArray()).NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Integer;
 

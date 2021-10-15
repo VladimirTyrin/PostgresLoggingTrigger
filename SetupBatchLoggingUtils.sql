@@ -50,6 +50,16 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION logging.get_update_trigger_name(schema_name VARCHAR, table_name VARCHAR)
+    RETURNS VARCHAR
+    LANGUAGE PLPGSQL
+AS
+$$
+BEGIN
+    RETURN schema_name || '_' || table_name || '_update_log_trigger';
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION logging.has_bigint_id_column(schema_name VARCHAR, table_name VARCHAR)
     RETURNS BOOLEAN AS
 $BODY$
@@ -87,7 +97,7 @@ BEGIN
             transaction_timestamp(),
             current_setting('application_name'),
             session_user,
-            logging.get_application_user();
+            application_user;
 
     RETURN new;
 END;
@@ -111,7 +121,33 @@ BEGIN
             transaction_timestamp(),
             current_setting('application_name'),
             session_user,
-            logging.get_application_user();
+            application_user;
+
+    RETURN new;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION logging.log_update_changes()
+    RETURNS TRIGGER
+    LANGUAGE PLPGSQL
+AS
+$$
+DECLARE
+    application_user VARCHAR = logging.get_application_user();
+BEGIN
+    EXECUTE FORMAT('INSERT INTO %I.%I (action_type, source_id, transaction_timestamp, application_name, database_user, application_user, changes_data)
+        SELECT $1, oldtable.id, $2, $3, $4, $5, (SELECT json_agg(row_to_json(x)) FROM(SELECT pre.key AS column_name, pre.value AS pre_value, post.value AS post_value
+				FROM jsonb_each(to_jsonb(oldtable)) AS pre
+				CROSS JOIN jsonb_each(to_jsonb(newtable)) AS post
+				WHERE pre.key = post.key AND pre.value IS DISTINCT FROM post.value) x) FROM oldtable INNER JOIN newtable ON oldtable.id = newtable.id AND newtable.* IS DISTINCT FROM oldtable.*',
+            TG_TABLE_SCHEMA,
+            logging.get_log_table_name(TG_TABLE_NAME))
+        USING
+            3,
+            transaction_timestamp(),
+            current_setting('application_name'),
+            session_user,
+            application_user;
 
     RETURN new;
 END;
@@ -125,6 +161,7 @@ $$
 DECLARE
     insert_trigger_name VARCHAR = logging.get_insert_trigger_name(schema_name, table_name);
     delete_trigger_name VARCHAR = logging.get_delete_trigger_name(schema_name, table_name);
+    update_trigger_name VARCHAR = logging.get_update_trigger_name(schema_name, table_name);
     log_table_name VARCHAR = logging.get_log_table_name(table_name::NAME);
     log_table_index_name VARCHAR = log_table_name || '_source_id';
 BEGIN
@@ -153,6 +190,17 @@ BEGIN
         FOR EACH STATEMENT
         EXECUTE PROCEDURE logging.log_delete_changes();',
         delete_trigger_name,
+        schema_name,
+        table_name);
+
+    EXECUTE FORMAT('
+    CREATE TRIGGER %I
+        AFTER UPDATE
+        ON %I.%I
+        REFERENCING OLD TABLE AS oldtable NEW TABLE AS newtable
+        FOR EACH STATEMENT
+        EXECUTE PROCEDURE logging.log_update_changes();',
+        update_trigger_name,
         schema_name,
         table_name);
 
@@ -189,6 +237,7 @@ $$
 DECLARE
     insert_trigger_name VARCHAR = logging.get_insert_trigger_name(schema_name, table_name);
     delete_trigger_name VARCHAR = logging.get_delete_trigger_name(schema_name, table_name);
+    update_trigger_name VARCHAR = logging.get_update_trigger_name(schema_name, table_name);
 BEGIN
     EXECUTE FORMAT('
     DROP TRIGGER IF EXISTS %I ON %I.%I',
@@ -199,6 +248,12 @@ BEGIN
     EXECUTE FORMAT('
     DROP TRIGGER IF EXISTS %I ON %I.%I',
         delete_trigger_name,
+        schema_name,
+        table_name);
+
+    EXECUTE FORMAT('
+    DROP TRIGGER IF EXISTS %I ON %I.%I',
+        update_trigger_name,
         schema_name,
         table_name);
 END;
