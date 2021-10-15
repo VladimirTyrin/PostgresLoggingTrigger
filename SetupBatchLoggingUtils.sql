@@ -137,13 +137,13 @@ DECLARE
 BEGIN
     EXECUTE FORMAT('INSERT INTO %I.%I (action_type, source_id, transaction_timestamp, application_name, database_user, application_user, changes_data)
         SELECT $1, oldtable.id, $2, $3, $4, $5, (SELECT json_agg(row_to_json(x)) FROM(SELECT pre.key AS column_name, pre.value AS pre_value, post.value AS post_value
-				FROM jsonb_each(to_jsonb(oldtable)) AS pre
-				CROSS JOIN jsonb_each(to_jsonb(newtable)) AS post
-				WHERE pre.key = post.key AND pre.value IS DISTINCT FROM post.value) x) FROM oldtable INNER JOIN newtable ON oldtable.id = newtable.id AND newtable.* IS DISTINCT FROM oldtable.*',
+                FROM jsonb_each(to_jsonb(oldtable)) AS pre
+                CROSS JOIN jsonb_each(to_jsonb(newtable)) AS post
+                WHERE pre.key = post.key AND pre.value IS DISTINCT FROM post.value) x) FROM oldtable INNER JOIN newtable ON oldtable.id = newtable.id AND newtable.* IS DISTINCT FROM oldtable.*',
             TG_TABLE_SCHEMA,
             logging.get_log_table_name(TG_TABLE_NAME))
         USING
-            3,
+            2,
             transaction_timestamp(),
             current_setting('application_name'),
             session_user,

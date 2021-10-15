@@ -38,6 +38,16 @@ await SqlHelper.TruncateTableAsync("trigger_test.foo_change_log");
 await SqlHelper.ForFoo.UpdateAsync(firstUpdated, "update_user");
 await PrintTablesAsync("AFTER LOG TRUNCATE AND SINGLE UPDATE WITH NO CHANGES");
 
+// no changes, update
+await SqlHelper.TruncateTableAsync("trigger_test.foo_change_log");
+firstUpdated = firstUpdated with { IntValue = 100 };
+var second = new Foo(100, 500, "first");
+await SqlHelper.ForFoo.AddAsync(new[] {firstUpdated, second}, "merge_user");
+await PrintTablesAsync("AFTER LOG TRUNCATE AND MERGE");
+
+
+
+
 static async Task PrintTablesAsync(string header)
 {
     Console.WriteLine($"----------- {header}");
