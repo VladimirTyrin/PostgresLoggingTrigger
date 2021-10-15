@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Npgsql;
 using NpgsqlTypes;
+using PostgreSQLCopyHelper;
 
 namespace PostgresLoggingTrigger;
 
@@ -133,8 +134,10 @@ INSERT INTO trigger_test.foo(added_at, unique_int_value, int_value, varchar_valu
             {
                 var foo = foos[i];
                 command.Parameters.AddWithValue($"@unique_int_value{i}", foo.UniqueIntValue);
-                command.Parameters.AddWithValue($"@int_value{i}", foo.IntValue.HasValue ? foo.IntValue.Value : DBNull.Value);
-                command.Parameters.AddWithValue($"@varchar_value{i}", foo.VarcharValue != null ? foo.VarcharValue : DBNull.Value);
+                command.Parameters.AddWithValue($"@int_value{i}",
+                    foo.IntValue.HasValue ? foo.IntValue.Value : DBNull.Value);
+                command.Parameters.AddWithValue($"@varchar_value{i}",
+                    foo.VarcharValue != null ? foo.VarcharValue : DBNull.Value);
             }
 
             await command.ExecuteNonQueryAsync();
@@ -155,7 +158,8 @@ INSERT INTO trigger_test.foo(added_at, unique_int_value, int_value, varchar_valu
             command.Transaction = transaction;
             command.CommandText = "DELETE FROM trigger_test.foo WHERE unique_int_value = ANY(:unique_int_values);";
 
-            command.Parameters.AddWithValue("unique_int_values", foos.Select(f => f.UniqueIntValue).ToArray()).NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Integer;
+            command.Parameters.AddWithValue("unique_int_values", foos.Select(f => f.UniqueIntValue).ToArray())
+                .NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Integer;
 
             await command.ExecuteNonQueryAsync();
 
@@ -189,13 +193,35 @@ UPDATE trigger_test.foo f SET unique_int_value = tmp.unique_int_value, int_value
             {
                 var foo = foos[i];
                 command.Parameters.AddWithValue($"@unique_int_value{i}", foo.UniqueIntValue);
-                command.Parameters.AddWithValue($"@int_value{i}", foo.IntValue.HasValue ? foo.IntValue.Value : DBNull.Value);
-                command.Parameters.AddWithValue($"@varchar_value{i}", foo.VarcharValue != null ? foo.VarcharValue : DBNull.Value);
+                command.Parameters.AddWithValue($"@int_value{i}",
+                    foo.IntValue.HasValue ? foo.IntValue.Value : DBNull.Value);
+                command.Parameters.AddWithValue($"@varchar_value{i}",
+                    foo.VarcharValue != null ? foo.VarcharValue : DBNull.Value);
             }
 
-            command.Parameters.AddWithValue("unique_int_values", foos.Select(f => f.UniqueIntValue).ToArray()).NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Integer;
+            command.Parameters.AddWithValue("unique_int_values", foos.Select(f => f.UniqueIntValue).ToArray())
+                .NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Integer;
 
             await command.ExecuteNonQueryAsync();
+
+            await transaction.CommitAsync();
+        }
+
+        public static async Task CopyAsync(IReadOnlyList<Foo> foos, string? userName)
+        {
+            var now = DateTime.Now;
+            var copyHelper = new PostgreSQLCopyHelper.PostgreSQLCopyHelper<Foo>("trigger_test", "foo")
+                .MapTimeStamp("added_at", _ => now)
+                .MapInteger("unique_int_value", x => x.UniqueIntValue)
+                .MapNullable("int_value", x => x.IntValue, NpgsqlDbType.Integer)
+                .MapVarchar("varchar_value", x => x.VarcharValue);
+
+            await using var connection = await OpenConnectionAsync();
+            await using var transaction = await connection.BeginTransactionAsync();
+
+            await SetApplicationUserAsync(connection, transaction, userName);
+
+            await copyHelper.SaveAllAsync(connection, foos);
 
             await transaction.CommitAsync();
         }

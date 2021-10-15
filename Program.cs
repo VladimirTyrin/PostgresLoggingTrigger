@@ -38,14 +38,21 @@ await SqlHelper.TruncateTableAsync("trigger_test.foo_change_log");
 await SqlHelper.ForFoo.UpdateAsync(firstUpdated, "update_user");
 await PrintTablesAsync("AFTER LOG TRUNCATE AND SINGLE UPDATE WITH NO CHANGES");
 
-// no changes, update
+// action_type = 1 + action_type = 2, INSERT ... ON CONFLICT UPDATE
 await SqlHelper.TruncateTableAsync("trigger_test.foo_change_log");
 firstUpdated = firstUpdated with { IntValue = 100 };
 var second = new Foo(100, 500, "first");
 await SqlHelper.ForFoo.AddAsync(new[] {firstUpdated, second}, "merge_user");
 await PrintTablesAsync("AFTER LOG TRUNCATE AND MERGE");
 
-
+// no changes, update
+await SqlHelper.TruncateTableAsync("trigger_test.foo_change_log");
+var copyBatch = Enumerable
+    .Range(200, 3)
+    .Select(i => new Foo(2 * i, 2 * i + 1, $"batch_element_{i}"))
+    .ToArray();
+await SqlHelper.ForFoo.CopyAsync(copyBatch, "copy_user");
+await PrintTablesAsync("AFTER LOG TRUNCATE AND COPY");
 
 
 static async Task PrintTablesAsync(string header)

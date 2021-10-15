@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="Npgsql" Version="5.0.10" />
+    <PackageReference Include="PostgreSQLCopyHelper" Version="2.8.0" />
   </ItemGroup>
 
   <ItemGroup>
